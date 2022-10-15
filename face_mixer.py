@@ -1,7 +1,6 @@
-from operator import le
-from turtle import left
 import cv2
 import mediapipe as mp
+import numpy as np
 
 class face_extractor():
     def __init__(self,image):
@@ -58,37 +57,117 @@ class face_extractor():
         p1 = round(r_eye_dis/l_eye_dis,2)
         p2 = round(third_eye_dis/mouth_dis,1)
 
-        if p1>= 0.95 and p1 <= 1.05 and p2 <= 1.3 and p2 > 1:
+        if p1>= 0.9 and p1 <= 1.1 and p2 <= 1.4 and p2 >= 1:
             return True
         return False
 
+class face_mixer():
+    def __init__(self,image1,image2):
+        self.image1 = image1
+        self.image2 = image2
+    def background_blure(self):
+        mp_selfie_segmentation = mp.solutions.selfie_segmentation
+        with mp_selfie_segmentation.SelfieSegmentation(model_selection=0) as selfie_segmentation:
+            results = selfie_segmentation.process(cv2.cvtColor(self.image1, cv2.COLOR_BGR2RGB))
+            mask  = (np.stack((results.segmentation_mask,)* 3,axis=-1)*255).astype(np.uint8)
+            mask = cv2.GaussianBlur(mask,(25,25),200)/255
+            blured_img = cv2.GaussianBlur(self.image1,(25,25),200)
+            rev_mask = 1-mask
+            self.image1 = (self.image1 * mask + blured_img * rev_mask).astype(np.uint8)
+    def extract_face(self):
+        mp_drawing = mp.solutions.drawing_utils
+        mp_drawing_styles = mp.solutions.drawing_styles
+        mp_face_mesh = mp.solutions.face_mesh
+        with mp_face_mesh.FaceMesh(
+                static_image_mode=True,
+                max_num_faces=1,
+                refine_landmarks=True,
+                min_detection_confidence=0.8) as face_mesh:
 
+            results = face_mesh.process(cv2.cvtColor(self.image2, cv2.COLOR_BGR2RGB))
+            annotated_image = self.image2 * 0
+            face_landmarks= results.multi_face_landmarks[0]
+            mp_drawing.draw_landmarks(
+                image=annotated_image,
+                landmark_list=face_landmarks,
+                connections=mp_face_mesh.FACEMESH_FACE_OVAL,
+                landmark_drawing_spec=None,
+                connection_drawing_spec=mp_drawing_styles
+                .get_default_face_mesh_contours_style())
+            _, im_th = cv2.threshold(annotated_image,200,255,cv2.THRESH_BINARY)
+            h,w,_ = im_th.shape
+            mk = np.zeros((h+2, w+2), np.uint8)
+            cv2.floodFill(im_th,mk,(0,0),(255,255,255))
+            im_th = (255 - im_th)
+            mask = cv2.GaussianBlur(im_th,(25,25),200) / 255
+            self.image2 = (mask * self.image2).astype(np.uint8)
+
+
+            results0 = face_mesh.process(cv2.cvtColor(self.image1, cv2.COLOR_BGR2RGB))
+            annotated_image0 = self.image1 * 0
+            face_landmarks0= results0.multi_face_landmarks[0]
+            mp_drawing.draw_landmarks(
+                image=annotated_image0,
+                landmark_list=face_landmarks0,
+                connections=mp_face_mesh.FACEMESH_FACE_OVAL,
+                landmark_drawing_spec=None,
+                connection_drawing_spec=mp_drawing_styles
+                .get_default_face_mesh_contours_style())
+            _, im_th0 = cv2.threshold(annotated_image0,200,255,cv2.THRESH_BINARY)
+            h0,w0,_ = im_th0.shape
+            mk0 =  np.zeros((h0+2, w0+2), np.uint8)
+            cv2.floodFill(im_th0,mk0,(0,0),(255,255,255))
+            mask0 = cv2.GaussianBlur(im_th0,(25,25),200) / 255
+            self.image1 = (mask0 * self.image1).astype(np.uint8)
+
+            lm = np.array([[l.x * w, l.y * h] for l in face_landmarks.landmark],np.float32).reshape(-1,1,2)
+            lm0 = np.array([[l.x * w0, l.y * h0] for l in face_landmarks0.landmark],np.float32).reshape(-1,1,2)
+
+            M, m = cv2.findHomography(lm, lm0, cv2.RANSAC,5.0)
+            im_dst = cv2.warpPerspective(self.image2, M,(w0,h0))
+
+            im_dst = ((1 - mask0) * im_dst).astype(np.uint8) + self.image1
+            cv2.imshow("1",self.image2)
+            
+            cv2.imshow("2",im_dst)
+            cv2.imshow("3",self.image1)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
     
-    # def face_orientation(self):
-    #     mp_face_mesh = mp.solutions.face_mesh
-    #     with mp_face_mesh.FaceMesh(
-    #             static_image_mode=True,
-    #             max_num_faces=1,
-    #             refine_landmarks=True,
-    #             min_detection_confidence=0.9) as face_mesh:
-    #         results = face_mesh.process(cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB))
-    #         print(results.multi_face_landmarks[0])
+            
+    
+  
 
 
 
 if __name__ == "__main__":
-    image = cv2.imread("6.jpeg")
-    face_extract = face_extractor(image)
+    image1 = cv2.imread("4.jpeg")
+    image2 = cv2.imread("test2.jpeg")
+    face_extract1 = face_extractor(image1)
+    face_extract2 = face_extractor(image2)
     print("\n\n\n\n")
-    face_extract.detect_faces()
-    if face_extract.number_of_faces == 0:
-        print("no face was detected in the image test1.jpeg")
+    face_extract1.detect_faces()
+    if face_extract1.number_of_faces == 0:
+        print("no face was detected in the image1")
         exit(0)
-    elif face_extract.number_of_faces != 1:
-        print("too many faces")
+    elif face_extract1.number_of_faces != 1:
+        print("too many faces in image1")
         exit(0)
-    if not face_extract.face_orientation():
-        print("face should be facing the camera")
+    if not face_extract1.face_orientation():
+        print("face should be facing the camera image1")
         exit(0)
 
+    face_extract2.detect_faces()
+    if face_extract2.number_of_faces == 0:
+        print("no face was detected in the image2")
+        exit(0)
+    elif face_extract2.number_of_faces != 1:
+        print("too many faces in image2")
+        exit(0)
+    if not face_extract2.face_orientation():
+        print("face should be facing the camera image2")
+        exit(0)
     
+    face_m = face_mixer(image1,image2)
+    face_m.background_blure()
+    face_m.extract_face()
