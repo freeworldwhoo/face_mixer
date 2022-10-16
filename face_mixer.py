@@ -137,6 +137,7 @@ class face_mixer():
             overlaping_mask = np.array([[[j.any()]*3 for j in i] for i in overlaping_mask])
             im_dst = im_dst + self.image1
             self.output = np.where(overlaping_mask, self.backup2, im_dst)
+            self.output = (self.backup1/2 + self.output/2).astype(np.uint8)
 
 
   
